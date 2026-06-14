@@ -32,6 +32,7 @@ DEFAULTS = {
     "start_rate_text": "3:1",
     "end_rate_text": "4:1",
     "shape_exponent": 1.0,
+    "interval_shape_exponent": 1.0,
 }
 
 
@@ -400,7 +401,6 @@ with params_col:
             "Interval shape exponent q",
             min_value=0.0625,
             max_value=16.0,
-            value=1.0,
             step=0.0625,
             key="interval_shape_exponent",
             help=(
@@ -657,36 +657,15 @@ with math_col:
         label_col, equation_col = st.columns([1.0, 1.35], gap="medium")
 
         with label_col:
-            st.markdown("**Curve progress**")
+            st.markdown("**Shape interval progress**")
             st.caption(
-                "Claude's formula curves normalized time using the CURVE value `C`."
+                "Bend normalized time. `q = 1` is linear, "
+                "`q > 1` changes late, `q < 1` changes early."
             )
 
         with equation_col:
             st.latex(r"""
-                f(x,C)
-                """)
-
-        label_col, equation_col = st.columns([1.0, 1.35], gap="medium")
-
-        with label_col:
-            st.markdown("**Positive CURVE**")
-            st.caption("Implemented literally from Claude's proposal.")
-
-        with equation_col:
-            st.latex(r"""
-                C > 0:\quad f(x,C) = x^{1 + C/100}
-                """)
-
-        label_col, equation_col = st.columns([1.0, 1.35], gap="medium")
-
-        with label_col:
-            st.markdown("**Negative CURVE**")
-            st.caption("Implemented literally from Claude's proposal.")
-
-        with equation_col:
-            st.latex(r"""
-                C < 0:\quad f(x,C) = x^{1/(1 + |C|/100)}
+                f(x) = x^q
                 """)
 
         label_col, equation_col = st.columns([1.0, 1.35], gap="medium")

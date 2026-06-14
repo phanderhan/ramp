@@ -187,51 +187,66 @@ def ramp_steps(
     }
 
 
-def claude_curve_progress(x, curve_value: float):
+def interval_shape_progress(x, interval_shape_exponent: float):
     """
-    Claude/Jon interval-mode curve function, implemented as written.
+    Shape normalized time for Interval Change Mode.
 
-    C = 0:
-        f(x) = x
+        f(x) = x^q
 
-    C > 0:
-        f(x) = x^(1 + C/100)
-
-    C < 0:
-        f(x) = x^(1 / (1 + |C|/100))
-
-    Note:
-        These formulas are implemented literally from Claude's proposal.
-        Their behavior is intentionally shown in the demo for comparison.
+    q = 1      linear interval change
+    q > 1      interval changes late
+    q < 1      interval changes early
     """
-    curve_value = max(-100.0, min(100.0, float(curve_value)))
+    if interval_shape_exponent <= 0:
+        raise ValueError("interval_shape_exponent must be greater than zero.")
+
     x = np.asarray(x)
     x = np.clip(x, 0.0, 1.0)
 
+    return np.power(x, interval_shape_exponent)
+
+
+def claude_curve_to_interval_exponent(curve_value: float) -> float:
+    """
+    Convert Claude's original CURVE value to the actual interval exponent q.
+
+    Claude's proposal, written as exponent math:
+
+        C = 0:
+            q = 1
+
+        C > 0:
+            q = 1 + C/100
+
+        C < 0:
+            q = 1 / (1 + |C|/100)
+
+    This is useful for comparison, but the demo should expose q directly.
+    """
+    curve_value = max(-100.0, min(100.0, float(curve_value)))
+
     if curve_value == 0:
-        return x
+        return 1.0
 
     if curve_value > 0:
-        exponent = 1.0 + curve_value / 100.0
-    else:
-        exponent = 1.0 / (1.0 + abs(curve_value) / 100.0)
+        return 1.0 + curve_value / 100.0
 
-    return np.power(x, exponent)
+    return 1.0 / (1.0 + abs(curve_value) / 100.0)
 
 
-def claude_interval_at(
+def interval_change_interval_at(
     t,
     duration: float,
     start_rate: float,
     end_rate: float,
-    curve_value: float,
+    interval_shape_exponent: float,
 ):
     """
-    Claude/Jon interval-mode model.
+    Interval Change Mode.
 
-    Instead of curving rate, this curves interval:
+    Instead of curving rate, this curves step interval:
 
-        I(t) = I_start + (I_end - I_start) * f(t / D, C)
+        I(t) = I_start + (I_end - I_start) * (t / D)^q
 
     where:
 
@@ -245,7 +260,7 @@ def claude_interval_at(
         raise ValueError("rates must be greater than zero.")
 
     x = np.asarray(t) / duration
-    f = claude_curve_progress(x, curve_value)
+    f = interval_shape_progress(x, interval_shape_exponent)
 
     start_interval = 1.0 / start_rate
     end_interval = 1.0 / end_rate
@@ -253,38 +268,38 @@ def claude_interval_at(
     return start_interval + (end_interval - start_interval) * f
 
 
-def claude_equivalent_rate_at(
+def interval_change_equivalent_rate_at(
     t,
     duration: float,
     start_rate: float,
     end_rate: float,
-    curve_value: float,
+    interval_shape_exponent: float,
 ):
     """
-    Equivalent rate implied by Claude's interval model.
+    Equivalent rate implied by Interval Change Mode.
 
-    This is not the primary curve in Claude's model.
+    This is not the primary curve in this mode.
     It is shown only for visualization.
     """
-    interval = claude_interval_at(
+    interval = interval_change_interval_at(
         t=t,
         duration=duration,
         start_rate=start_rate,
         end_rate=end_rate,
-        curve_value=curve_value,
+        interval_shape_exponent=interval_shape_exponent,
     )
 
     return 1.0 / interval
 
 
-def claude_interval_ramp_steps(
+def interval_change_ramp_steps(
     duration: float,
     start_rate: float,
     end_rate: float,
-    curve_value: float,
+    interval_shape_exponent: float,
 ):
     """
-    Generate step positions using Claude's interval-interpolation model.
+    Generate step positions using Interval Change Mode.
 
     Placement rule:
 
@@ -292,13 +307,6 @@ def claude_interval_ramp_steps(
         t_next = t_current + I(t_current)
 
     Stop when the next step would exceed the ramp duration.
-
-    Endpoint convention for this demo:
-        - include t = 0 only if at least one interval can fit
-        - exclude a step exactly at t = duration
-        - if the first interval is longer than the duration, return zero steps
-
-    That preserves Claude's idea that very slow rates can produce zero steps.
     """
     if duration <= 0:
         raise ValueError("duration must be greater than zero.")
@@ -314,19 +322,19 @@ def claude_interval_ramp_steps(
 
     while current_time < duration - epsilon:
         interval = float(
-            claude_interval_at(
+            interval_change_interval_at(
                 t=current_time,
                 duration=duration,
                 start_rate=start_rate,
                 end_rate=end_rate,
-                curve_value=curve_value,
+                interval_shape_exponent=interval_shape_exponent,
             )
         )
 
         if not np.isfinite(interval) or interval <= 0:
             break
 
-        # If even the first interval cannot fit, the model produces zero steps.
+        # If even the first interval cannot fit, this mode produces zero steps.
         if not positions and interval > duration + epsilon:
             break
 
@@ -347,7 +355,7 @@ def claude_interval_ramp_steps(
 
     return {
         "mode": "Interval Change Mode",
-        "curve_value": curve_value,
+        "interval_shape_exponent": interval_shape_exponent,
         "step_count": len(positions),
         "positions": positions,
         "intervals": intervals,

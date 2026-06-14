@@ -13,9 +13,9 @@ sys.path.insert(0, str(SRC_DIR))
 
 from ramp.math import (
     accumulated_area,
-    claude_equivalent_rate_at,
-    claude_interval_at,
-    claude_interval_ramp_steps,
+    interval_change_equivalent_rate_at,
+    interval_change_interval_at,
+    interval_change_ramp_steps,
     parse_rate,
     ramp_steps,
     rate_at,
@@ -142,25 +142,25 @@ def make_interval_change_behavior_figure(
     duration,
     start_rate,
     end_rate,
-    curve_value,
+    interval_shape_exponent,
     result,
 ):
     t = np.linspace(0, duration, 1000)
 
-    interval_values = claude_interval_at(
+    interval_values = interval_change_interval_at(
         t=t,
         duration=duration,
         start_rate=start_rate,
         end_rate=end_rate,
-        curve_value=curve_value,
+        interval_shape_exponent=interval_shape_exponent,
     )
 
-    equivalent_rate_values = claude_equivalent_rate_at(
+    equivalent_rate_values = interval_change_equivalent_rate_at(
         t=t,
         duration=duration,
         start_rate=start_rate,
         end_rate=end_rate,
-        curve_value=curve_value,
+        interval_shape_exponent=interval_shape_exponent,
     )
 
     positions = result["positions"]
@@ -322,11 +322,32 @@ def render_cowbell_ramp_wav(
 
 st.title("SCRITCH RAMP Math Proof")
 
-st.markdown("""
-    This mockup treats **RAMP** as a continuous rate curve.  
-    The demo exposes the mathematical shape parameter directly as **shape exponent p**.
-    Later, SCRITCH's user-facing **CURVE** control can be mapped onto this parameter.
-    """)
+mode = st.radio(
+    "Mode",
+    [
+        "Area Change Mode",
+        "Interval Change Mode",
+    ],
+    horizontal=True,
+)
+
+if mode == "Area Change Mode":
+    st.markdown("""
+        This mockup treats **RAMP** as a continuous **rate curve**.
+
+        In **Area Change Mode**, the demo exposes the mathematical shape parameter
+        directly as **shape exponent p**. The ramp curves instantaneous rate,
+        accumulates area under that rate curve, and places steps at integer
+        area crossings. Later, SCRITCH's user-facing **CURVE** control can be mapped onto this parameter.
+        """)
+else:
+    st.markdown("""
+        This mockup treats **RAMP** as a continuous **interval curve**.
+
+        In **Interval Change Mode**, the demo exposes the mathematical shape parameter
+        directly as **interval exponent q**. The ramp curves the time interval
+        between steps, then places each next step by adding the current interval. Later, SCRITCH's user-facing **CURVE** control can be mapped onto this parameter.
+        """)
 
 params_col, math_col, charts_col = st.columns(
     [1.2, 2.0, 3.6],
@@ -336,14 +357,6 @@ params_col, math_col, charts_col = st.columns(
 
 with params_col:
     st.subheader("Parameters")
-
-    mode = st.radio(
-        "Mode",
-        [
-            "Area Change Mode",
-            "Interval Change Mode — Claude formula",
-        ],
-    )
 
     st.button("Reset", on_click=reset_defaults)
 
@@ -380,18 +393,19 @@ with params_col:
             ),
         )
 
-        claude_curve = None
+        interval_shape_exponent = None
 
     else:
-        claude_curve = st.slider(
-            "CURVE C",
-            min_value=-100,
-            max_value=100,
-            value=0,
-            step=1,
+        interval_shape_exponent = st.slider(
+            "Interval shape exponent q",
+            min_value=0.0625,
+            max_value=16.0,
+            value=1.0,
+            step=0.0625,
+            key="interval_shape_exponent",
             help=(
-                "Interval Change Mode uses Claude's formula as written. "
-                "C=0 is linear interval interpolation."
+                "Interval Change Mode uses f(x)=x^q. "
+                "q=1 is linear interval change. q>1 changes late. q<1 changes early."
             ),
         )
 
@@ -428,11 +442,11 @@ with params_col:
             shape_exponent=shape_exponent,
         )
     else:
-        result = claude_interval_ramp_steps(
+        result = interval_change_ramp_steps(
             duration=duration,
             start_rate=start_rate,
             end_rate=end_rate,
-            curve_value=claude_curve,
+            interval_shape_exponent=interval_shape_exponent,
         )
 
     positions = result["positions"]
@@ -478,7 +492,7 @@ with params_col:
                 "Value": [
                     f"{start_rate:.6g}",
                     f"{end_rate:.6g}",
-                    f"{claude_curve}",
+                    f"{interval_shape_exponent:.4g}",
                     f"{result['start_interval']:.6f}",
                     f"{result['end_interval']:.6f}",
                     f"{result['step_count']}",
@@ -486,7 +500,7 @@ with params_col:
                 "Meaning": [
                     "start steps/beat",
                     "end steps/beat",
-                    "Claude CURVE",
+                    "interval shape exponent",
                     "start beats/step",
                     "end beats/step",
                     "generated steps",
@@ -691,7 +705,7 @@ with math_col:
                 -
                 \frac{1}{R_{\mathrm{start}}}
                 \right)
-                f\left(\frac{t}{D}, C\right)
+                \left(\frac{t}{D}\right)^q
                 """)
 
         label_col, equation_col = st.columns([1.0, 1.35], gap="medium")
@@ -729,14 +743,13 @@ with math_col:
         label_col, equation_col = st.columns([1.0, 1.35], gap="medium")
 
         with label_col:
-            st.markdown("**Current CURVE**")
-            st.caption("This is the currently selected Claude-style CURVE value.")
+            st.markdown("**Current interval shape**")
+            st.caption("This is the actual exponent `q` used by Interval Change Mode.")
 
         with equation_col:
             st.latex(rf"""
-                C = {claude_curve}
+                q = {interval_shape_exponent:.4g}
                 """)
-
         label_col, equation_col = st.columns([1.0, 1.35], gap="medium")
 
         with label_col:
@@ -753,12 +766,11 @@ with math_col:
                 -
                 {1 / start_rate:.4g}
                 \right)
-                f\left(\frac{{t}}{{{duration:.4g}}}, {claude_curve}\right)
+                \left(\frac{{t}}{{{duration:.4g}}}\right)^{{{interval_shape_exponent:.4g}}}
                 """)
 
-        st.warning(
-            "Note: this implements Claude's formula literally. Earlier we found that its curve labels "
-            "and exponent behavior appear reversed, which is one reason this comparison mode is useful."
+        st.info(
+            "Interval Change Mode curves step intervals directly. The exposed value q is the actual mathematical exponent."
         )
 
 with charts_col:
@@ -777,7 +789,7 @@ with charts_col:
             duration=duration,
             start_rate=start_rate,
             end_rate=end_rate,
-            curve_value=claude_curve,
+            interval_shape_exponent=interval_shape_exponent,
             result=result,
         )
 

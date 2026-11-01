@@ -105,6 +105,9 @@ def find_time_for_area(
 
     Binary search works because A(t) is monotonic when rate is positive.
     """
+    if k == 0:
+        return 0.0
+
     low = 0.0
     high = duration
 
@@ -126,6 +129,32 @@ def find_time_for_area(
             high = mid
 
     return high
+
+
+def boundary_step_data(positions, duration: float):
+    """Describe generated ramp steps separately from the following section's reference.
+
+    positions/step_count retain the generator's ramp steps. boundary_positions
+    includes exactly one reference at duration; intervals are its differences.
+    closing_interval is None when no ramp step exists. Only roundoff-level
+    boundary landings are merged, without changing the generated positions.
+    """
+    positions = np.asarray(positions, dtype=float)
+    tolerance = 8 * np.spacing(float(duration))
+    if len(positions) and abs(positions[-1] - duration) <= tolerance:
+        boundary_positions = positions.copy()
+        boundary_positions[-1] = duration
+    else:
+        boundary_positions = np.append(positions, duration)
+
+    intervals = np.diff(boundary_positions)
+    return {
+        "positions": positions,
+        "step_count": len(positions),
+        "boundary_positions": boundary_positions,
+        "intervals": intervals,
+        "closing_interval": float(intervals[-1]) if len(intervals) else None,
+    }
 
 
 def ramp_steps(
@@ -177,13 +206,9 @@ def ramp_steps(
         for k in range(max_k + 1)
     ]
 
-    intervals = np.diff(positions)
-
     return {
         "total_area": total_area,
-        "step_count": len(positions),
-        "positions": np.array(positions),
-        "intervals": intervals,
+        **boundary_step_data(positions, duration),
     }
 
 
@@ -350,15 +375,10 @@ def interval_change_ramp_steps(
         if len(positions) >= max_steps:
             raise RuntimeError("Too many generated steps. Check ramp settings.")
 
-    positions = np.array(positions)
-    intervals = np.diff(positions)
-
     return {
         "mode": "Interval Change Mode",
         "interval_shape_exponent": interval_shape_exponent,
-        "step_count": len(positions),
-        "positions": positions,
-        "intervals": intervals,
+        **boundary_step_data(positions, duration),
         "start_interval": 1.0 / start_rate,
         "end_interval": 1.0 / end_rate,
     }

@@ -28,7 +28,7 @@ st.set_page_config(
 
 
 DEFAULTS = {
-    "duration": 4.0,
+    "duration": 4,
     "start_rate_text": "3:1",
     "end_rate_text": "4:1",
     "shape_exponent": 1.0,
@@ -37,13 +37,71 @@ DEFAULTS = {
 
 
 for key, value in DEFAULTS.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
+    # Reassign saved values so Streamlit keeps them even when a mode hides
+    # their widget. Otherwise widget cleanup deletes the inactive exponent.
+    st.session_state[key] = st.session_state.get(key, value)
+
+# Normalize saved fractional durations before creating the integer widget.
+st.session_state["duration"] = max(
+    1, min(16, int(float(st.session_state["duration"]) + 0.5))
+)
+
+# Equal slider distances multiply the exponent by the same factor (16 steps
+# per octave). Keep saved linear-slider values and their reciprocals so existing
+# sessions retain their settings and 1 stays at the midpoint.
+for options_key, exponent_key in (
+    ("p_slider_options", "shape_exponent"),
+    ("q_slider_options", "interval_shape_exponent"),
+):
+    if options_key not in st.session_state:
+        saved_exponent = st.session_state[exponent_key]
+        st.session_state[options_key] = sorted(
+            {2.0 ** (index / 16) for index in range(-64, 65)}
+            | {saved_exponent, 1.0 / saved_exponent}
+        )
 
 
 def reset_defaults():
     for key, value in DEFAULTS.items():
         st.session_state[key] = value
+
+
+def draw_boundary_rhythm(steps_ax, intervals_ax, duration, result):
+    """Use the same boundary-inclusive rhythm in both mode charts."""
+    positions = result["boundary_positions"]
+    intervals = result["intervals"]
+    boundary_label = "Boundary reference (following section)"
+    steps_ax.eventplot(positions[:-1], lineoffsets=1, linelengths=0.7)
+    steps_ax.plot(
+        [positions[-1]], [1], marker="D", color="tab:orange",
+        linestyle="none", label=boundary_label,
+    )
+    padding = duration * 0.05
+    steps_ax.set_xlim(-padding, duration + padding)
+    steps_ax.set_ylim(0.4, 1.9)
+    steps_ax.set_yticks([])
+    steps_ax.set_title(f"Step positions — {result['step_count']} generated steps + reference")
+    steps_ax.set_xlabel("Beat position t (beats from ramp start)")
+    steps_ax.legend(loc="upper left", fontsize="small")
+    steps_ax.grid(True)
+
+    if len(intervals):
+        numbers = np.arange(1, len(intervals) + 1)
+        intervals_ax.plot(numbers, intervals, marker="o")
+        intervals_ax.plot(
+            [numbers[-1]], [intervals[-1]], marker="D", color="tab:orange",
+            linestyle="none", label="Closing interval to boundary",
+        )
+        intervals_ax.legend(fontsize="small")
+    else:
+        intervals_ax.text(
+            0.5, 0.5, "No intervals (no generated steps)",
+            ha="center", va="center", transform=intervals_ax.transAxes,
+        )
+    intervals_ax.set_title("Intervals through boundary reference")
+    intervals_ax.set_xlabel("Interval number")
+    intervals_ax.set_ylabel("Beats until next step")
+    intervals_ax.grid(True)
 
 
 def make_behavior_figure(
@@ -71,8 +129,6 @@ def make_behavior_figure(
         shape_exponent,
     )
 
-    positions = result["positions"]
-    intervals = result["intervals"]
     step_count = result["step_count"]
 
     fig, axes = plt.subplots(
@@ -104,36 +160,7 @@ def make_behavior_figure(
     area_ax.set_ylabel("Accumulated steps")
     area_ax.grid(True)
 
-    # Bottom-left: generated step positions
-    steps_ax.eventplot(
-        positions,
-        lineoffsets=1,
-        linelengths=0.7,
-    )
-    steps_ax.set_xlim(0, duration)
-    steps_ax.set_yticks([])
-    steps_ax.set_title(f"Generated step positions — {step_count} steps")
-    steps_ax.set_xlabel("Beat")
-    steps_ax.grid(True)
-
-    # Bottom-right: intervals
-    if len(intervals) > 0:
-        interval_numbers = np.arange(1, len(intervals) + 1)
-        intervals_ax.plot(interval_numbers, intervals, marker="o")
-    else:
-        intervals_ax.text(
-            0.5,
-            0.5,
-            "No intervals",
-            ha="center",
-            va="center",
-            transform=intervals_ax.transAxes,
-        )
-
-    intervals_ax.set_title("Inter-step intervals")
-    intervals_ax.set_xlabel("Interval number")
-    intervals_ax.set_ylabel("Beats until next step")
-    intervals_ax.grid(True)
+    draw_boundary_rhythm(steps_ax, intervals_ax, duration, result)
 
     fig.tight_layout()
     return fig
@@ -164,10 +191,6 @@ def make_interval_change_behavior_figure(
         interval_shape_exponent=interval_shape_exponent,
     )
 
-    positions = result["positions"]
-    intervals = result["intervals"]
-    step_count = result["step_count"]
-
     fig, axes = plt.subplots(
         2,
         2,
@@ -191,34 +214,7 @@ def make_interval_change_behavior_figure(
     rate_ax.set_ylabel("Steps per beat")
     rate_ax.grid(True)
 
-    steps_ax.eventplot(
-        positions,
-        lineoffsets=1,
-        linelengths=0.7,
-    )
-    steps_ax.set_xlim(0, duration)
-    steps_ax.set_yticks([])
-    steps_ax.set_title(f"Generated step positions — {step_count} steps")
-    steps_ax.set_xlabel("Beat")
-    steps_ax.grid(True)
-
-    if len(intervals) > 0:
-        interval_numbers = np.arange(1, len(intervals) + 1)
-        intervals_ax.plot(interval_numbers, intervals, marker="o")
-    else:
-        intervals_ax.text(
-            0.5,
-            0.5,
-            "No intervals",
-            ha="center",
-            va="center",
-            transform=intervals_ax.transAxes,
-        )
-
-    intervals_ax.set_title("Inter-step intervals")
-    intervals_ax.set_xlabel("Interval number")
-    intervals_ax.set_ylabel("Beats until next step")
-    intervals_ax.grid(True)
+    draw_boundary_rhythm(steps_ax, intervals_ax, duration, result)
 
     fig.tight_layout()
     return fig
@@ -291,7 +287,7 @@ def render_cowbell_ramp_wav(
     hit_gain=0.75,
 ):
     """
-    Render generated ramp step positions as cowbell hits.
+    Render boundary-inclusive step positions as cowbell hits, including the reference.
 
     positions are in beats.
     tempo_bpm converts beat positions to seconds.
@@ -310,7 +306,6 @@ def render_cowbell_ramp_wav(
 
     for beat_position in positions:
         start_sample = int(round(beat_position * beat_seconds * sample_rate))
-        end_sample = start_sample + len(hit)
 
         if start_sample >= total_samples:
             continue
@@ -363,9 +358,9 @@ with params_col:
 
     duration = st.slider(
         "Duration, in beats",
-        min_value=1.0,
-        max_value=16.0,
-        step=0.25,
+        min_value=1,
+        max_value=16,
+        step=1,
         key="duration",
     )
 
@@ -382,34 +377,38 @@ with params_col:
     )
 
     if mode == "Area Change Mode":
-        shape_exponent = st.slider(
+        shape_exponent = st.select_slider(
             "Shape exponent p",
-            min_value=0.0625,
-            max_value=16.0,
-            step=0.0625,
+            options=st.session_state["p_slider_options"],
+            format_func=lambda p: f"{p:.4g}",
             key="shape_exponent",
             help=(
                 "Area Change Mode uses g(x)=x^p. "
-                "p=1 is linear. p>1 changes late. p<1 changes early."
+                "p=1 is linear. p>1 changes late. p<1 changes early. "
+                "The slider is logarithmic: 1 is the midpoint, and equal distances "
+                "multiply or divide p by the same factor."
             ),
         )
 
         interval_shape_exponent = None
 
     else:
-        interval_shape_exponent = st.slider(
+        interval_shape_exponent = st.select_slider(
             "Interval shape exponent q",
-            min_value=0.0625,
-            max_value=16.0,
-            step=0.0625,
+            options=st.session_state["q_slider_options"],
+            format_func=lambda q: f"{q:.4g}",
             key="interval_shape_exponent",
             help=(
                 "Interval Change Mode uses f(x)=x^q. "
-                "q=1 is linear interval change. q>1 changes late. q<1 changes early."
+                "q=1 is linear interval change. q>1 changes late. q<1 changes early. "
+                "The slider is logarithmic: 1 is the midpoint, and equal distances "
+                "multiply or divide q by the same factor."
             ),
         )
 
         shape_exponent = None
+
+    st.caption("Logarithmic scale · 1 is the midpoint.")
 
     tempo_bpm = st.slider(
         "Preview tempo, BPM",
@@ -449,7 +448,7 @@ with params_col:
             interval_shape_exponent=interval_shape_exponent,
         )
 
-    positions = result["positions"]
+    positions = result["boundary_positions"]
     intervals = result["intervals"]
 
     st.divider()
@@ -464,6 +463,11 @@ with params_col:
     )
 
     st.audio(wav_bytes, format="audio/wav")
+    st.caption(
+        f"Includes one boundary reference hit at t = {duration:g} beats "
+        f"(start of ramp-relative beat {duration + 1:g}, in the following section). "
+        "The reference is excluded from the generated-step count."
+    )
 
     st.subheader("Derived")
 
@@ -780,9 +784,17 @@ with charts_col:
     with details_left:
         with st.expander("Step positions"):
             for index, position in enumerate(positions, start=1):
-                st.write(f"{index:>2}: {position:.6f}")
+                if index == len(positions):
+                    st.write(f"Boundary reference (following section): {position:.6f} beats")
+                else:
+                    st.write(f"{index:>2}: {position:.6f} beats")
 
     with details_right:
         with st.expander("Intervals"):
             for index, interval in enumerate(intervals, start=1):
-                st.write(f"{index:>2} → {index + 1}: {interval:.6f}")
+                if index == len(intervals):
+                    st.write(f"{index:>2} → boundary: {interval:.6f} beats (closing interval)")
+                else:
+                    st.write(f"{index:>2} → {index + 1}: {interval:.6f} beats")
+            if not len(intervals):
+                st.caption("No intervals: no generated ramp steps.")

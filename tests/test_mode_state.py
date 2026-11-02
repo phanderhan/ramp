@@ -6,6 +6,34 @@ from streamlit.testing.v1 import AppTest
 
 
 class ModeStateTests(unittest.TestCase):
+    def test_shared_skew_at_exponent_one_survives_switching_and_resets(self):
+        app = AppTest.from_file(
+            str(Path(__file__).resolve().parents[1] / "apps/ramp_app.py")
+        ).run()
+        self.assertEqual(app.slider(key="skew").value, 0)
+        self.assertEqual(app.slider(key="skew").proto.min, -100)
+        self.assertEqual(app.slider(key="skew").proto.max, 100)
+        app.slider(key="skew").set_value(-100).run()
+        self.assertFalse(app.exception)
+        self.assertTrue(any("numerical accumulation" in item.value for item in app.info))
+        self.assertFalse(any(item.label == "Closed-form accumulated area" for item in app.expander))
+        self.assertTrue(any("w(x)^" in item.value for item in app.latex))
+        self.assertTrue(any("SCRITCH disables SKEW at CURVE=0" in c.value for c in app.caption))
+        self.assertTrue(any("closing interval" in item.value for item in app.markdown))
+        app.radio[0].set_value("Interval Change Mode").run()
+        self.assertEqual(app.slider(key="skew").value, -100)
+        self.assertEqual(app.select_slider(key="interval_shape_exponent").value, 1)
+        app.slider(key="skew").set_value(100).run()
+        self.assertFalse(app.exception)
+        self.assertTrue(any("closing interval" in item.value for item in app.markdown))
+        app.radio[0].set_value("Area Change Mode").run()
+        self.assertEqual(app.slider(key="skew").value, 100)
+        self.assertEqual(app.select_slider(key="shape_exponent").value, 1)
+        app.button[0].click().run()
+        self.assertEqual(app.slider(key="skew").value, 0)
+        self.assertTrue(any(item.label == "Closed-form accumulated area" for item in app.expander))
+        self.assertFalse(app.exception)
+
     def test_exponent_sliders_are_logarithmic_and_preserve_legacy_values(self):
         app_path = str(Path(__file__).resolve().parents[1] / "apps/ramp_app.py")
         for mode, key, options_key in (

@@ -117,6 +117,7 @@ class BoundaryTests(unittest.TestCase):
                     sample_rate, tempo, gain = 8000, 40, 0.75
                     wav = helpers["render_cowbell_ramp_wav"](
                         result["boundary_positions"], duration, tempo, sample_rate, gain,
+                        kick_gain=0,
                     )
                     with wave.open(io.BytesIO(wav), "rb") as source:
                         pcm = np.frombuffer(source.readframes(source.getnframes()), dtype=np.int16)
